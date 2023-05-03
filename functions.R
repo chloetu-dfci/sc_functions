@@ -1,5 +1,20 @@
 ### Spatial -----------------------------------------------------------------------
 
+## Read in spatial data
+read_spatial <- function(spatial_dir, project_name, coord_dir){
+  gene_exp <- Read10X(spatial_dir)
+  slide_seq <- CreateSeuratObject(gene_exp, project = project_name, assay = "Spatial")
+
+  barcode_xy <- read.table(coord_file, row.names = 1)
+  colnames(barcode_xy) <- c("x", "y")
+
+  slide_seq[['image']] <- new(
+      Class = 'SlideSeq',
+      assay = "Spatial",
+      coordinates = barcode_xy
+  )
+}
+
 ## Returns all beads around the vicinity of a spatial object ----------------------
 # seurat_spatial: spatial seurat object
 # vicinity: in microns
