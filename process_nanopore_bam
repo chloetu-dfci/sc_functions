@@ -1,0 +1,76 @@
+# Function to create managable dataframe from nanopore BAM
+```{r}
+df_from_nanopore_bam <- function(bam_dir, AS_filter = 300){
+  # Create pointer to the bam file
+  bam_file <- BamFile(bam_dir)
+
+  # Decide what fields to collect
+  what <- c("qname", "flag", "rname", "strand", "pos", "qwidth", "mapq", "cigar", "mrnm", "mpos", "isize", "seq", "qual", "mate_status")
+
+  # Extract tags
+  param <- ScanBamParam(tag=c("AS", "NM", "ms", "nn", "tp", "cm", "s1", "s2", "de", "rl"), what=what)
+  bam_list <- scanBam(bam_file, param = param)
+  bam_header <- scanBamHeader(bam_file, param = c("targets"))
+
+
+  # Extracting info from header into df
+  header.df <- data.frame(ref_len = bam_header[["targets"]]) %>%
+  rownames_to_column("ref_name") %>%
+  distinct()
+
+  ### Extracting info from all reads into dataframe and append ref length data
+  mapped_read_info.df <- data.frame(query_name = bam_list[[1]]$qname, ref_name = bam_list[[1]]$rname, query_len = bam_list[[1]]$qwidth, AS = bam_list[[1]]$tag$AS, ref_start_index = bam_list[[1]]$pos, mapq = bam_list[[1]]$mapq, read_flag = bam_list[[1]]$flag, n_mismatch = bam_list[[1]]$tag$NM, ms = bam_list[[1]]$tag$ms, nn = bam_list[[1]]$tag$nn, tp = bam_list[[1]]$tag$tp, cm = bam_list[[1]]$tag$cm, s1 = bam_list[[1]]$tag$s1, s2 = bam_list[[1]]$tag$s2, de = bam_list[[1]]$tag$de, rl = bam_list[[1]]$tag$rl) %>%
+  left_join(header.df, by = "ref_name")
+
+  # Peep at distribution of various stats
+  plot <- (ggplot(mapped_read_info.df, aes(x = AS)) +
+    geom_histogram(bins = 100) +
+  ggplot(mapped_read_info.df, aes(x = cm)) +
+    geom_histogram(bins = 100) +
+  ggplot(mapped_read_info.df, aes(x = query_len)) +
+    geom_histogram(bins = 100) + scale_y_log10())
+
+  print(plot)
+  
+  mapped_read_info.df <- mapped_read_info.df %>%
+    filter(AS > AS_filter)
+  
+  # Peep at distribution of various stats
+  plot <- (ggplot(mapped_read_info.df, aes(x = AS)) +
+    geom_histogram(bins = 100) +
+  ggplot(mapped_read_info.df, aes(x = cm)) +
+    geom_histogram(bins = 100) + 
+  ggplot(mapped_read_info.df, aes(x = query_len)) +
+    geom_histogram(bins = 100) + scale_y_log10() +
+  ggtitle(paste0("AS > ", AS_filter)))
+  
+  print(plot)
+
+  # Explore how many reads mapped to different bacteria species, and how many copies of each bacteria species there are in the sample
+  ref_names <- as.character(mapped_read_info.df$ref_name)
+
+  count_read_species <- as.data.frame(table(ref_names)) %>%
+    mutate(tax_id = as.character(str_extract(ref_names, ".*(?=:emu)"))) %>%
+    group_by(tax_id) %>%
+    mutate(n_reads = sum(Freq)) %>%
+    select(tax_id, n_reads) %>%
+    ungroup() %>%
+    distinct() %>%
+    left_join(tax_df, by = "tax_id") %>%
+    arrange(desc(n_reads))
+  
+  count_species_copies <- as.data.frame(table(ref_names)) %>%
+    mutate(tax_id = str_extract(ref_names, ".*(?=:emu)")) %>%
+    select(tax_id) %>%
+    count(tax_id) %>%
+    arrange(desc(n)) %>%
+    left_join(tax_df, by = "tax_id") %>%
+    arrange(desc(n))
+  
+  colnames(count_species_copies)[2] <- "n_copies"
+  
+  output_list <- list(read_df = mapped_read_info.df, count_reads.df = count_read_species, count_species.df = count_species_copies)
+  return(output_list)
+}
+
+```
